@@ -1,0 +1,14 @@
+wandb
+__pycache__
+
+# data
+*.png
+*.jpg
+*.csv
+*.json
+
+# models
+*.tar.pth
+
+# archives
+*.zip
