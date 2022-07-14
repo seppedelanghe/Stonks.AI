@@ -32,43 +32,19 @@ def scale(X, scaler_path: str, save: bool = False):
     return scl.transform(X)
 
 
-# is ugly but much faster than new version... which is suprising
-def __old_make_dataset(df: pd.DataFrame, time_d: int = 10):
-    X, y = [], []
-    last = []
-    for i, row in df.iterrows():
-        if row.hasnans:
-            if type(last) == type(None):
-                continue
-            row = last[-1] + (last[-1] - last[len(last) - 2]) / 2
-
-        if type(last) == type(None) or len(last) < time_d:
-            last.append(row.values)
-            continue
-        
-        X.append(np.array(last))
-        y.append(row if type(row) == np.ndarray else row.values)
-
-        last.pop(0)
-        last.append(row.values)
-
-    return np.array(X), np.array(y)
-
-def make_dataset(df: pd.DataFrame, time_d: int = 10):
+def make_dataset(df: np.ndarray, time_d: int = 10):
     X, y = [], []
 
-    # iterate over total amount of values
     for i in range(df.shape[0] - time_d - 1):
         idx = i + time_d
-        row = df.iloc[idx + 1].drop(['Volume']) # remove volume is it doesn't need to be predicted
-        if row.hasnans:
+        row = df[idx + 1]
+        row = row[:-1] # remove volume is it doesn't need to be predicted
+        x = df[i:idx]
+        if np.isnan(np.sum(row)) or np.isnan(np.sum(row)):
             continue # if the row (y) has nans, skip
 
-        x = df.iloc[i:idx]
-        x = x.fillna(x.mean()) # fill empty values with mean
-
-        X.append(x.values)
-        y.append(row.values)
+        X.append(x)
+        y.append(row)
         
     return np.array(X), np.array(y)
 
@@ -87,7 +63,7 @@ def get_loader_for_file(path: str, batch_size: int, time_d: int, as_double: bool
     df = df[['Low', 'Open', 'High', 'Close', 'Adjusted Close', 'Volume']]
     
     # make dataset from dataframe
-    X, y = make_dataset(df, time_d)
+    X, y = make_dataset(df.to_numpy(), time_d)
     
     # if values need to be in floats, convert to float32 instead of float64
     if not as_double:
