@@ -48,9 +48,14 @@ class ConvLSTM(nn.Module):
 
     def _create_output_layers(self):
         return nn.Sequential(
-            nn.Linear(self.mid_neurons, self.time_d * self.n_inputs),
+            nn.Linear(self.mid_neurons, (self.time_d * self.n_inputs) ** 2),
             nn.Dropout(self.dropout),
             nn.LeakyReLU(0.1),
+
+            nn.Linear((self.time_d * self.n_inputs) ** 2, self.time_d * self.n_inputs),
+            nn.Dropout(self.dropout),
+            nn.LeakyReLU(0.1),
+
             nn.Linear(self.time_d * self.n_inputs, self.n_outputs)
         )
 

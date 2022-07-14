@@ -11,6 +11,7 @@ from lib.model import ConvLSTM
 from lib.loss import ConvLSTMLoss
 from lib.data import get_all_csv_files, get_loader_for_file
 from lib.plots import make_color_gradient_compare_plot, make_compare_candle_plots
+from lib.utils import count_parameters
 
 DATA_PATH = './stock_market_data'
 FILES = get_all_csv_files(DATA_PATH)[:100]
@@ -27,7 +28,7 @@ AS_DOUBLE = False
 WAB = False
 N_RENDER_IMAGES = 2
 
-LOAD_MODEL = True
+LOAD_MODEL = False
 LOAD_MODEL_PATH = os.path.join('models', 'checkpoint_epoch_9_07-14-2022.tar.pth')
 
 m = ConvLSTM(TIME_D, INPUT_LAYERS, OUTPUT_LAYERS).to(DEVICE)
@@ -137,8 +138,11 @@ def train():
                 raise e
 
 
-        now = datetime.now().strftime("%m-%d-%Y_%h-%M")
+        now = datetime.now().strftime("%m-%d-%Y_%H-%M")
         torch.save(m.state_dict(), os.path.join('models', f'checkpoint_epoch_{epoch}_{now}.tar.pth'))
 
 if __name__ == '__main__':
+    # print(count_parameters(m))
+    # print(m.mid_neurons)
+
     train()
