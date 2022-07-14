@@ -24,7 +24,8 @@ EPOCHS = 10
 LR = 1e-3
 DEVICE = "cuda"
 AS_DOUBLE = False
-WAB = False
+WAB = True
+N_RENDER_IMAGES = 2
 
 LOAD_MODEL = False
 LOAD_MODEL_PATH = os.path.join('models', 'sp500_413_loss_688.tar.pth')
@@ -40,8 +41,13 @@ loss_fn = ConvLSTMLoss()
 opt = Adam(m.parameters(), lr=LR)
 
 
+def calc_diff(y, y_pred, precision: int = 4):
+    precision = 10 ** precision
+    return float(torch.mean(input=(torch.round(y * precision) / precision) - (torch.round(y_pred * precision) / precision))) * 100
+
 def train_fn(loader):
     losses = []
+    acc = []
 
     for x, y in loader:            
         x, y = x.to(DEVICE), y.to(DEVICE)
@@ -51,12 +57,10 @@ def train_fn(loader):
         loss.backward()
         opt.step()
 
+        acc.append(calc_diff(y, out))
         losses.append(loss.item())
 
-    if WAB:
-        wandb.log({"loss": int(np.mean(losses))})
-
-    return int(np.mean(losses))
+    return np.mean(losses), np.mean(acc)
 
 def test_fn(loader, items: int = 5, ticker: str = 'unknown'):
     for x, y in loader:
@@ -65,31 +69,26 @@ def test_fn(loader, items: int = 5, ticker: str = 'unknown'):
 
         x, y, y_pred = x.to('cpu').detach(), y.to('cpu').detach(), y_pred.to('cpu').detach()
         for i in range(items):
-            gradient_save_path = make_color_gradient_compare_plot(x[i], y[i], y_pred[i], f"{ticker}_{i}_gradient.png", output_cols=OUTPUT_LAYERS)
             candles_save_path = make_compare_candle_plots(x[i], y[i], y_pred[i], f"{ticker}_{i}_comparision.png", output_cols=OUTPUT_LAYERS)
+            # gradient_save_path = make_color_gradient_compare_plot(x[i], y[i], y_pred[i], f"{ticker}_{i}_gradient.png", output_cols=OUTPUT_LAYERS)
             if WAB:
                 wandb.log({
                     f"{ticker}_{i}_comparision": wandb.Image(candles_save_path),
-                    f"{ticker}_{i}_gradient": wandb.Image(gradient_save_path)
+                    # f"{ticker}_{i}_gradient": wandb.Image(gradient_save_path)
                 })
             
             if i == items:
                 break
-
         break
         
 
 def test(file_n: int = -1):
-    print("=> Running test predicitons")
-
     if file_n == -1:
-        file_n = randint(0, len(FILES))
+        file_n = randint(0, len(FILES) - 1)
 
-    _, test_loader = get_loader_for_file(FILES[file_n], BATCH_SIZE, TIME_D, AS_DOUBLE)
+    test_loader = get_loader_for_file(FILES[file_n], BATCH_SIZE, TIME_D, AS_DOUBLE)
     ticker = os.path.basename(FILES[file_n])[:-4]
-    test_fn(test_loader, 5, ticker)
-
-    print("=> Test prediction results saved")
+    test_fn(test_loader, N_RENDER_IMAGES, ticker)
 
 def train():
     if WAB:
@@ -105,29 +104,41 @@ def train():
     big_loop = tqdm(range(EPOCHS), leave=True)
     for epoch in big_loop:
         test() # run before to check for faulty code before training
-        
+
         fails = 0
-        loop = tqdm(enumerate(FILES), total=len(FILES), leave=False)
-        for i, path in loop:
+        loop = tqdm(range(len(FILES)), total=len(FILES), leave=False)
+        for i in loop:
+            path = FILES[i]
             if path in EXCEPTIONS:
                 continue
 
             try:
-                train_loader, _ = get_loader_for_file(path, BATCH_SIZE, TIME_D, AS_DOUBLE)
-                mean_loss = train_fn(train_loader)
+                train_loader = get_loader_for_file(path, BATCH_SIZE, TIME_D, AS_DOUBLE)
+                mean_loss, mean_diff = train_fn(train_loader)
                 loop.set_postfix(loss=mean_loss) # update progress bar
-                big_loop.set_postfix(fails=fails)
+
+                big_loop.set_postfix({
+                    'fails': fails,
+                })
+
+                if WAB:
+                    wandb.log({
+                        'loss': mean_loss,
+                        'diff': mean_diff,
+                        'fail': fails
+                    }, commit=False)
+
             except KeyboardInterrupt:
                 print('Control-C pressed, stopping...')
                 sys.exit()
-            except Exception:
+            except Exception as e:
                 fails += 1
                 EXCEPTIONS.append(path)
-                continue
-        
+                raise e
 
-    now = str(datetime.now())
-    torch.save(m.state_dict(), os.path.join('models', f'sp500_413_{now}.tar.pth'))
+
+        now = datetime.now().strftime("%m-%d-%Y")
+        torch.save(m.state_dict(), os.path.join('models', f'checkpoint_epoch_{epoch}_{now}.tar.pth'))
 
 if __name__ == '__main__':
     train()

@@ -40,7 +40,7 @@ def make_dataset(df: np.ndarray, time_d: int = 10):
         row = df[idx + 1]
         row = row[:-1] # remove volume is it doesn't need to be predicted
         x = df[i:idx]
-        if np.isnan(np.sum(row)) or np.isnan(np.sum(row)):
+        if np.isnan(np.sum(x)) or np.isnan(np.sum(row)):
             continue # if the row (y) has nans, skip
 
         X.append(x)
@@ -70,8 +70,6 @@ def get_loader_for_file(path: str, batch_size: int, time_d: int, as_double: bool
         X, y = X.astype("float32"), y.astype("float32")
     
     # split in train and test + make pytorch loaders
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=1)
-    train_loader = data.DataLoader(data.TensorDataset(torch.tensor(X_train), torch.tensor(y_train)), batch_size=batch_size)
-    test_loader = data.DataLoader(data.TensorDataset(torch.tensor(X_test), torch.tensor(y_test)), batch_size=batch_size)
+    train_loader = data.DataLoader(data.TensorDataset(torch.tensor(X), torch.tensor(y)), batch_size=batch_size)
 
-    return train_loader, test_loader
+    return train_loader
