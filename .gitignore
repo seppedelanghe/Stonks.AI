@@ -6,6 +6,7 @@ __pycache__
 *.jpg
 *.csv
 *.json
+*.bin
 
 # models
 *.tar.pth

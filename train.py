@@ -10,25 +10,26 @@ from torch.optim import Adam
 from lib.model import ConvLSTM
 from lib.loss import ConvLSTMLoss
 from lib.data import get_all_csv_files, get_loader_for_file
-from lib.plots import make_compare_candle_plots
+from lib.plots import make_color_gradient_compare_plot, make_compare_candle_plots
 
 DATA_PATH = './stock_market_data'
 FILES = get_all_csv_files(DATA_PATH)
 EXCEPTIONS = []
 
 TIME_D = 10
+INPUT_LAYERS = 6
+OUTPUT_LAYERS = 5
 BATCH_SIZE = 512
 EPOCHS = 10
 LR = 1e-3
 DEVICE = "cuda"
 AS_DOUBLE = False
-WAB = True
-OUTPUT_LAYERS = 5
+WAB = False
 
 LOAD_MODEL = False
 LOAD_MODEL_PATH = os.path.join('models', 'sp500_413_loss_688.tar.pth')
 
-m = ConvLSTM(TIME_D, OUTPUT_LAYERS).to(DEVICE)
+m = ConvLSTM(TIME_D, INPUT_LAYERS, OUTPUT_LAYERS).to(DEVICE)
 if AS_DOUBLE:
     m = m.double()
 
@@ -64,9 +65,13 @@ def test_fn(loader, items: int = 5, ticker: str = 'unknown'):
 
         x, y, y_pred = x.to('cpu').detach(), y.to('cpu').detach(), y_pred.to('cpu').detach()
         for i in range(items):
-            save_path = make_compare_candle_plots(x[i], y[i], y_pred[i], f"{ticker}_{i}_comparision.png")
+            gradient_save_path = make_color_gradient_compare_plot(x[i], y[i], y_pred[i], f"{ticker}_{i}_gradient.png", output_cols=OUTPUT_LAYERS)
+            candles_save_path = make_compare_candle_plots(x[i], y[i], y_pred[i], f"{ticker}_{i}_comparision.png", output_cols=OUTPUT_LAYERS)
             if WAB:
-                wandb.log({'f"{ticker}_{i}_comparision': wandb.Image(save_path)})
+                wandb.log({
+                    f"{ticker}_{i}_comparision": wandb.Image(candles_save_path),
+                    f"{ticker}_{i}_gradient": wandb.Image(gradient_save_path)
+                })
             
             if i == items:
                 break
@@ -82,7 +87,7 @@ def test(file_n: int = -1):
 
     _, test_loader = get_loader_for_file(FILES[file_n], BATCH_SIZE, TIME_D, AS_DOUBLE)
     ticker = os.path.basename(FILES[file_n])[:-4]
-    test_fn(test_loader, 10, ticker)
+    test_fn(test_loader, 5, ticker)
 
     print("=> Test prediction results saved")
 
@@ -99,6 +104,7 @@ def train():
 
     big_loop = tqdm(range(EPOCHS), leave=True)
     for epoch in big_loop:
+        test() # run before to check for faulty code before training
         
         fails = 0
         loop = tqdm(enumerate(FILES), total=len(FILES), leave=False)
@@ -119,11 +125,9 @@ def train():
                 EXCEPTIONS.append(path)
                 continue
         
-        test()
 
     now = str(datetime.now())
     torch.save(m.state_dict(), os.path.join('models', f'sp500_413_{now}.tar.pth'))
 
 if __name__ == '__main__':
-    test()
-    # train()
+    train()
