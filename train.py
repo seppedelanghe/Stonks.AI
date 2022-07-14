@@ -13,10 +13,10 @@ from lib.data import get_all_csv_files, get_loader_for_file
 from lib.plots import make_color_gradient_compare_plot, make_compare_candle_plots
 
 DATA_PATH = './stock_market_data'
-FILES = get_all_csv_files(DATA_PATH)[:10]
+FILES = get_all_csv_files(DATA_PATH)[:100]
 EXCEPTIONS = []
 
-TIME_D = 10
+TIME_D = 14
 INPUT_LAYERS = 6
 OUTPUT_LAYERS = 5
 BATCH_SIZE = 512
@@ -27,8 +27,8 @@ AS_DOUBLE = False
 WAB = False
 N_RENDER_IMAGES = 2
 
-LOAD_MODEL = False
-LOAD_MODEL_PATH = os.path.join('models', 'sp500_413_loss_688.tar.pth')
+LOAD_MODEL = True
+LOAD_MODEL_PATH = os.path.join('models', 'checkpoint_epoch_9_07-14-2022.tar.pth')
 
 m = ConvLSTM(TIME_D, INPUT_LAYERS, OUTPUT_LAYERS).to(DEVICE)
 if AS_DOUBLE:
@@ -137,7 +137,7 @@ def train():
                 raise e
 
 
-        now = datetime.now().strftime("%m-%d-%Y")
+        now = datetime.now().strftime("%m-%d-%Y_%h-%M")
         torch.save(m.state_dict(), os.path.join('models', f'checkpoint_epoch_{epoch}_{now}.tar.pth'))
 
 if __name__ == '__main__':
