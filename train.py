@@ -13,7 +13,7 @@ from lib.data import get_all_csv_files, get_loader_for_file
 from lib.plots import make_color_gradient_compare_plot, make_compare_candle_plots
 
 DATA_PATH = './stock_market_data'
-FILES = get_all_csv_files(DATA_PATH)
+FILES = get_all_csv_files(DATA_PATH)[:10]
 EXCEPTIONS = []
 
 TIME_D = 10
@@ -24,7 +24,7 @@ EPOCHS = 10
 LR = 1e-3
 DEVICE = "cuda"
 AS_DOUBLE = False
-WAB = True
+WAB = False
 N_RENDER_IMAGES = 2
 
 LOAD_MODEL = False
