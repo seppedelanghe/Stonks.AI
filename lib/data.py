@@ -10,8 +10,7 @@ from cachetools import cached, Cache
 DEFAULT_DATA_PATH = './stock_market_data'
 SCALER_PATH = './scalers/minmax_scaler.bin'
 VOLUME_SCALER_PATH = './scalers/volume_scaler.bin'
-CACHE = Cache(maxsize=1000)
-
+CACHE = Cache(maxsize=1100)
 
 MONEY_RANGE = [0.0, 8324640145408.0]
 ADJUSTED_RANGE = [-616456459764173628137646621458432.0, 942168706172424929960592932864.0]
@@ -22,9 +21,13 @@ def scale(data: torch.Tensor, new_min=0, new_max=1):
     adj = data[:, 4:5]
     volume = data[:, -1:]
 
-    money = (money - MONEY_RANGE[0]) / (MONEY_RANGE[1] - MONEY_RANGE[0]) * (new_max - new_min) + new_min
-    adj = (adj - ADJUSTED_RANGE[0]) / (ADJUSTED_RANGE[1] - ADJUSTED_RANGE[0]) * (new_max - new_min) + new_min
-    volume = (volume - VOLUME_RANGE[0]) / (VOLUME_RANGE[1] - VOLUME_RANGE[0]) * (new_max - new_min) + new_min
+    money_range = (torch.min(money), torch.max(money))
+    adj_range = (torch.min(adj), torch.max(adj))
+    volume_range = (torch.min(volume), torch.max(volume))
+
+    money = (money - money_range[0]) / (money_range[1] - money_range[0]) * (new_max - new_min) + new_min
+    adj = (adj - adj_range[0]) / (adj_range[1] - adj_range[0]) * (new_max - new_min) + new_min
+    volume = (volume - volume_range[0]) / (volume_range[1] - volume_range[0]) * (new_max - new_min) + new_min
     return torch.hstack((money, adj, volume))
 
 def inverse_scale(data: torch.Tensor, curr_max=1, with_vol: bool = False):
@@ -57,44 +60,6 @@ def get_all_csv_files(dir: str):
 def large_df(files):
     return pd.concat((pd.read_csv(f) for i, f in tqdm(enumerate(files), total=len(files))), ignore_index=True)
 
-# def make_scaler():
-#     print('=> Making scaler from all files')
-#     x = large_df(get_all_csv_files(DEFAULT_DATA_PATH))
-#     x = x.dropna(axis=0)
-#     x = x.drop(['Date'], axis=1)
-#     x = x[['Low', 'Open', 'High', 'Close', 'Adjusted Close', 'Volume']]
-#     x = x.to_numpy()
-    
-#     scl = MinMaxScaler(feature_range=(0, 1))
-#     vscl = MinMaxScaler(feature_range=(0, 1))
-
-#     scl = scl.fit(x[:, :-1])
-#     vscl = vscl.fit(x[:, -1:])
-
-#     pickle.dump(scl, open(SCALER_PATH, 'wb'))
-#     pickle.dump(vscl, open(VOLUME_SCALER_PATH, 'wb'))
-
-# def inverse_scale(data, with_volume=True):
-#     if with_volume:
-#         scl: MinMaxScaler = pickle.load(open(SCALER_PATH, 'rb'))
-#         vscl: MinMaxScaler = pickle.load(open(VOLUME_SCALER_PATH, 'rb'))
-#         data[:, :-1] = scl.inverse_transform(data[:, :-1])
-#         data[:, -1:] = vscl.inverse_transform(data[:, -1:])
-#         return data
-    
-#     scl: MinMaxScaler = pickle.load(open(SCALER_PATH, 'rb'))
-#     return scl.inverse_transform(data)
-
-
-# def scale(x):
-#     if not os.path.isfile(SCALER_PATH) or not os.path.isfile(SCALER_PATH):
-#         make_scaler()
-    
-#     scl: MinMaxScaler = pickle.load(open(SCALER_PATH, 'rb'))
-#     vscl: MinMaxScaler = pickle.load(open(VOLUME_SCALER_PATH, 'rb'))
-#     x[:, :-1] = scl.transform(x[:, :-1])
-#     x[:, -1:] = vscl.transform(x[:, -1:])
-#     return x
 
 def make_dataset(df: np.ndarray, time_d: int = 10):
     X, y = [], []
@@ -120,12 +85,11 @@ def get_loader_for_file(path: str, batch_size: int, time_d: int, as_double: bool
     
     # remove date tag
     df.drop(['Date'], axis=1, inplace=True)
+    # rearrange columns for 'make_dataset'
     df = df[['Low', 'Open', 'High', 'Close', 'Adjusted Close', 'Volume']]
     
     # scale with min max scaler
     df = pd.DataFrame(scale(torch.tensor(df.to_numpy())), columns=['Low', 'Open', 'High', 'Close', 'Adjusted Close', 'Volume'])
-    
-    # rearrange columns for 'make_dataset'
     
     # make dataset from dataframe
     X, y = make_dataset(df.to_numpy(), time_d)
@@ -138,3 +102,45 @@ def get_loader_for_file(path: str, batch_size: int, time_d: int, as_double: bool
     train_loader = data.DataLoader(data.TensorDataset(torch.tensor(X), torch.tensor(y)), batch_size=batch_size)
 
     return train_loader
+
+
+
+
+from torch.utils.data import Dataset
+
+class PreprocessedDataset(Dataset):
+    def __init__(self, Xpath, ypath, time_d: int = 10, output_params: int = 4):
+        assert os.path.isfile(Xpath), 'X file does not exist'
+        assert os.path.isfile(ypath), 'y file does not exist'
+
+        self.X: torch.Tensor = pickle.load(open(Xpath, 'rb'))
+        self.y: torch.Tensor = pickle.load(open(ypath, 'rb'))
+
+        assert self.X.shape[0] / time_d == self.X.shape[0] // time_d, 'time_d does not seem to be correct for this dataset'
+        assert self.y.shape[0] / output_params == self.y.shape[0] // output_params , 'the output_params seem to be incorrect for this dataset'
+        
+        self.X = self.X.reshape((self.X.shape[0] // time_d, time_d, self.X.shape[-1]))
+        self.y = self.y.reshape((self.y.shape[0] // output_params, output_params))
+
+    def __len__(self):
+        return self.X.shape[0] - 1
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+    def set_scale(self, mn: float, mx: float, mn_vol: float, mx_vol: float):
+        self.min = mn
+        self.max = mx
+        self.min_vol = mn_vol
+        self.max_vol = mx_vol
+
+    def inverse_scale(self, data: torch.Tensor, curr_max = 1, with_vol: bool = False):
+        money = data[:, :4]
+
+        money = money / curr_max * (self.max - self.min) + self.min
+
+        if not with_vol:
+            return money
+        
+        volume = data[:, -1:] / curr_max * (self.max_vol - self.min_vol) + self.min_vol
+        return torch.hstack((money, volume))

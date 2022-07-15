@@ -56,7 +56,7 @@ class ConvLSTM(nn.Module):
             nn.Dropout(self.dropout),
             nn.LeakyReLU(0.1),
 
-            nn.Linear(self.time_d * self.n_inputs, self.n_outputs)
+            nn.Linear(self.time_d * self.n_inputs, self.n_outputs),
         )
 
     def forward(self, x):

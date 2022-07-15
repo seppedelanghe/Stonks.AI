@@ -10,6 +10,9 @@ __pycache__
 
 # models
 *.tar.pth
+*.tar
+*.pth
 
 # archives
 *.zip
+*.7z
