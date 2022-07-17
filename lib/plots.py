@@ -7,7 +7,6 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from PIL import Image
 from datetime import datetime
 
-from lib.data import inverse_scale
 from lib.utils import unicode_block
 
 RESULTS_PATH = os.path.join('results', datetime.now().strftime("%m-%d-%Y"))
@@ -25,9 +24,6 @@ def plot_terminal_graph(x, name: str, max_size: int = 80):
 def make_candle_plot(x: torch.Tensor, y: torch.Tensor, name: str = 'prediction', output_cols: int = 5):
     inp = x[:, :-1]
     out = y.reshape(1, output_cols)
-
-    inp = inverse_scale(inp)
-    out = inverse_scale(out)
 
     data = torch.vstack((inp, out))
 

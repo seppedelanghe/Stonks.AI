@@ -29,7 +29,13 @@ WAB = False
 N_RENDER_IMAGES = 2
 
 LOAD_MODEL = False
-LOAD_MODEL_PATH = os.path.join('models', 'checkpoint_epoch_9_07-15-2022_21-17.tar.pth')
+LOAD_MODEL_PATH = os.path.join('models', '07-16-2022', 'checkpoint_01-46.tar.pth')
+
+TRAIN_DATA = ('./data/X.bin', './data/y.bin')
+TRAIN_SCALE = (44500.0, 7421640800.0)
+
+TEST_DATA = ('./data/Xlarge.bin', './data/ylarge.bin')
+TEST_SCALE = (44500.0, 7421640800.0)
 
 m = ConvLSTM(TIME_D, INPUT_LAYERS, OUTPUT_LAYERS).to(DEVICE)
 if AS_DOUBLE:
@@ -42,27 +48,30 @@ if LOAD_MODEL:
     load_checkpoint(LOAD_MODEL_PATH, m, opt, DEVICE)
 
 
-train_data = PreprocessedDataset('./data/X.bin', './data/y.bin', TIME_D, OUTPUT_LAYERS)
-train_data.set_scale(0.0, 44500.0, 0.0, 7421640800.0)
-train_loader = DataLoader(train_data, BATCH_SIZE, shuffle=SHUFFLE, num_workers=DATA_WORKERS)
+def test_fn(dataset: PreprocessedDataset, items: int = 5, epoch: int = 1):
+    loader = DataLoader(dataset, BATCH_SIZE, shuffle=SHUFFLE, num_workers=DATA_WORKERS)
 
-def test_fn(loader, items: int = 5):
     for x, y in loader:
         x, y = x.to(DEVICE), y.to(DEVICE)
         y_pred = m(x)
 
         x, y, y_pred = x.to('cpu').detach(), y.to('cpu').detach(), y_pred.to('cpu').detach()
+
         for i in range(items):
-            candles_save_path = make_compare_candle_plots(x[i], y[i], y_pred[i], f"{i}_comparision.png", output_cols=OUTPUT_LAYERS)
-            # gradient_save_path = make_color_gradient_compare_plot(x[i], y[i], y_pred[i], f"{ticker}_{i}_gradient.png", output_cols=OUTPUT_LAYERS)
+
+            # inverse scale before plotting
+            curr_x = dataset.inverse_scale(x[i], with_vol=True)
+            curr_y = dataset.inverse_scale(y[i], with_vol=False)
+            curr_y_pred = dataset.inverse_scale(y_pred[i], with_vol=False)
+
+            candles_save_path = make_compare_candle_plots(curr_x, curr_y, curr_y_pred, f"{epoch}_comparision_{i}.png", output_cols=OUTPUT_LAYERS)
+            # gradient_save_path = make_color_gradient_compare_plot(x[i], y[i], y_pred[i], f("{ticker}_{i}_gradient.png", output_cols=OUTPUT_LAYERS)
             if WAB:
                 wandb.log({
                     f"{i}_comparision": wandb.Image(candles_save_path),
                     # f"{ticker}_{i}_gradient": wandb.Image(gradient_save_path)
                 })
             
-            if i == items:
-                break
         break
         
 def train_fn(loader):
@@ -91,8 +100,11 @@ def train_fn(loader):
 
     return np.mean(losses), np.mean(acc), faults
 
-def test():
-    test_fn(train_loader, N_RENDER_IMAGES)
+def test(epoch: int = 1):
+    test_data = PreprocessedDataset(*TEST_DATA, TIME_D, OUTPUT_LAYERS)
+    test_data.set_scale(*TEST_SCALE)
+    test_fn(test_data, N_RENDER_IMAGES, epoch)
+
 
 def train():
     if WAB:
@@ -105,11 +117,15 @@ def train():
                 "double": AS_DOUBLE
         })
 
+    train_data = PreprocessedDataset(*TRAIN_DATA, TIME_D, OUTPUT_LAYERS)
+    train_data.set_scale(*TRAIN_SCALE)
+    train_loader = DataLoader(train_data, BATCH_SIZE, shuffle=SHUFFLE, num_workers=DATA_WORKERS)
+
     big_loop = tqdm(range(EPOCHS), leave=True)
     loss_over_time, fails = [], 0
 
     for epoch in big_loop:
-        # test() # run before to check for faulty code before training
+        test(epoch) # run before to check for faulty code before training
 
         try:
             mean_loss, mean_diff, faults = train_fn(train_loader)

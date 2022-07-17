@@ -32,7 +32,7 @@ def save_checkpoint(model, optim, epoch: int = 1):
     today = datetime.now().strftime("%m-%d-%Y")
     now = datetime.now().strftime("%H-%M")
     os.makedirs(os.path.join('models', today), exist_ok=True)
-    torch.save(checkpoint, os.path.join('models', today, f'checkpoint_{now}.pth'))
+    torch.save(checkpoint, os.path.join('models', today, f'{epoch}_checkpoint_{now}.pth'))
 
 def load_checkpoint(path: str, model, optim, device: str = 'cuda'):
     assert os.path.isfile(path), 'Checkpoint file does not exist.'

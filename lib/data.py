@@ -128,15 +128,14 @@ class PreprocessedDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
-    def set_scale(self, mn: float, mx: float, mn_vol: float, mx_vol: float):
-        self.min = mn
+    def set_scale(self, mx: float, mx_vol: float):
+        self.min = 0.0
         self.max = mx
-        self.min_vol = mn_vol
+        self.min_vol = 0.0
         self.max_vol = mx_vol
 
     def inverse_scale(self, data: torch.Tensor, curr_max = 1, with_vol: bool = False):
-        money = data[:, :4]
-
+        money = data[:, :-1] if with_vol else data
         money = money / curr_max * (self.max - self.min) + self.min
 
         if not with_vol:
