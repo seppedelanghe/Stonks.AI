@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 
 from lib.model import ConvLSTM
 from lib.loss import ConvLSTMLoss
-from lib.data import PreprocessedDataset
+from lib.data import StonksDataset
 from lib.plots import make_compare_candle_plots, plot_terminal_graph
 from lib.utils import load_checkpoint, save_checkpoint
 
@@ -31,10 +31,11 @@ LOAD_MODEL = False
 LOAD_MODEL_PATH = os.path.join('models', '07-16-2022', 'checkpoint_01-46.pth')
 
 TRAIN_DATA = ('./data/Xlarge.bin', './data/ylarge.bin')
-TRAIN_SCALE = (44500.0, 7421640800.0)
-
 TEST_DATA = ('./data/X.bin', './data/y.bin')
-TEST_SCALE = (44500.0, 7421640800.0)
+SCL = {
+    'money': (0.0, 44500.0),
+    'volume': (0.0, 7421640800.0),
+}
 
 m = ConvLSTM(TIME_D, INPUT_LAYERS, OUTPUT_LAYERS).to(DEVICE)
 if AS_DOUBLE:
@@ -47,7 +48,7 @@ if LOAD_MODEL:
     load_checkpoint(LOAD_MODEL_PATH, m, opt, DEVICE)
 
 
-def test_fn(dataset: PreprocessedDataset, items: int = 5, epoch: int = 1):
+def test_fn(dataset: StonksDataset, items: int = 5, epoch: int = 1):
     loader = DataLoader(dataset, 4 * items, shuffle=True, num_workers=1)
 
     for x, y in loader:
@@ -108,8 +109,8 @@ def train_fn(loader):
     return np.mean(losses), faults
 
 def test(epoch: int = 1):
-    test_data = PreprocessedDataset(*TEST_DATA, TIME_D, OUTPUT_LAYERS)
-    test_data.set_scale(*TEST_SCALE)
+    test_data = StonksDataset(TIME_D, OUTPUT_LAYERS)
+    test_data.load_datasets(*TEST_DATA, SCL)
     test_fn(test_data, N_RENDER_IMAGES, epoch)
 
 
@@ -124,8 +125,8 @@ def train():
                 "double": AS_DOUBLE
         })
 
-    train_data = PreprocessedDataset(*TRAIN_DATA, TIME_D, OUTPUT_LAYERS)
-    train_data.set_scale(*TRAIN_SCALE)
+    train_data = StonksDataset(TIME_D, OUTPUT_LAYERS)
+    train_data.load_datasets(*TRAIN_DATA, SCL)
     train_loader = DataLoader(train_data, BATCH_SIZE, shuffle=SHUFFLE, num_workers=DATA_WORKERS)
 
     big_loop = tqdm(range(EPOCHS), leave=True)
