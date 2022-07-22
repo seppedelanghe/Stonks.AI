@@ -1,9 +1,10 @@
-import os, gzip, shutil, torch, pickle
+import os, gzip, shutil, torch, pickle, json
 import pandas as pd
 
 from tqdm import tqdm
 from torch.utils.data import Dataset
 from typing import List
+import numpy as np
 
 class StonksDataset(Dataset):
     def __init__(self, time_d: int = 10, output_params: int = 4):
@@ -46,7 +47,7 @@ class StonksDataset(Dataset):
 
     @staticmethod
     def to_tensors(d):
-        return torch.from_numpy(np.array(d))
+        return torch.from_numpy(d)
 
     def find_ranges(self):
         money = self.X[:, :-1]
@@ -56,14 +57,15 @@ class StonksDataset(Dataset):
         self.scl['volume'] = (float(torch.min(volume)), float(torch.max(volume)))
 
     def scale(self, data: torch.Tensor, new_min=0, new_max=1, with_volume: bool = True):
-        money = data[:, :4] if with_volume else data
-        money = (money - self.scl['money'][0]) / (self.scl['money'][1] - self.scl['money'][0]) * (new_max - new_min) + new_min
+        money = (data[:, :, :4] if with_volume else data - self.scl['money'][0]) / (self.scl['money'][1] - self.scl['money'][0]) * (new_max - new_min) + new_min
         
         if not with_volume:
             return money
 
-        volume = (data[:, -1:] - self.scl['volume'][0]) / (self.scl['volume'][1] - self.scl['volume'][0]) * (new_max - new_min) + new_min
-        return torch.hstack((money, volume))
+        volume = (data[:, :, -1:] - self.scl['volume'][0]) / (self.scl['volume'][1] - self.scl['volume'][0]) * (new_max - new_min) + new_min
+        data[:, :, :4] = money
+        data[:, :, -1:] = volume
+        return data
 
     def inverse_scale(self, data: torch.Tensor, curr_max = 1, with_vol: bool = False):
         money = data[:, :-1] if with_vol else data
@@ -77,81 +79,71 @@ class StonksDataset(Dataset):
 
     def make_dataset(self, d: List[List[float]]):
         d: torch.Tensor = self.to_tensors(d)
-        Xd, yd = None, None
+        x = torch.stack([d[i:i + self.time_d] for i in range(d.shape[0] - self.time_d - 1) if not torch.isnan(torch.sum(d[i:i + self.time_d]))])
+        rows = torch.stack([d[i + self.time_d + 1][:-1] for i in range(d.shape[0] - self.time_d - 1) if not torch.isnan(torch.sum(d[i + self.time_d + 1][:-1]))])
 
-        for i in range(d.shape[0] - self.time_d - 1):
-            idx = i + self.time_d
-            row = d[idx + 1]
-            row = row[:-1] # remove volume is it doesn't need to be predicted
-            x = d[i:idx]
-            if torch.isnan(torch.sum(x)) or torch.isnan(torch.sum(row)):
-                continue # if the row (y) has nans, skip
-
-            if type(Xd) == type(None):
-                Xd = x
-                yd = row
-            else:
-                Xd = torch.concat((Xd, x))
-                yd = torch.concat((yd, row))
-            
-        return Xd, yd
-
+        if type(self.X) == type(None):
+            self.X = x
+            self.y = rows
+        else:
+            self.X = torch.concat((self.X, x))
+            self.y = torch.concat((self.y, rows))
+        
     def make_datasets(self, data: dict):
-        loop = tqdm(data, total=len(data), leave=False)
-        for ticker in loop:
-            # to_dataset
-            dataset = self.make_dataset(data[ticker])
-
-            # checks
-            if type(dataset[0]) == type(None) or type(dataset[1]) == type(None):
-                print(f"{ticker} is useless when using time_d {self.time_d}")
-                continue
-
-            # add to large dataset
-            if type(self.X) == type(None):
-                self.X = dataset[0]
-                self.y = dataset[1]
-            else:
-                self.X = torch.concat((self.X, dataset[0]))
-                self.y = torch.concat((self.y, dataset[1]))
+        [self.make_dataset(data[ticker]) for ticker in tqdm(data, total=len(data), leave=False)]
 
         # scale
         self.find_ranges()
-        self.X = self.scale(self.X)
-        self.y = self.scale(self.y, with_volume=False)
+        self.X = self.scale(self.X).float()
+        self.y = self.scale(self.y, with_volume=False).float()
 
     def large_df(self, path):
         files = self.get_all_csv_files(path)
         return pd.concat((pd.read_csv(f) for i, f in tqdm(enumerate(files), total=len(files), leave=False)), ignore_index=True)
 
     def filter_data(self, df: pd.DataFrame):
-        df = df[self.cols].dropna(axis=0)
-        return df[df['Low'] < self.max_low]
+        return df[self.cols][df['Low'] < self.max_low].dropna(axis=0)
 
     def format_file(self, path: str):
         df = pd.read_csv(path)
         df = self.filter_data(df)
-        return df.to_numpy().tolist()
+        return df.to_numpy()
 
     def from_csvs(self, path):
         files = self.get_all_csv_files(path)
         loop = tqdm(files, total=len(files), leave=False)
         return {self.ticker_from_path(path): self.format_file(path) for path in loop}
 
-    def load_datasets(self, Xpath: str, ypath: str, scl: dict):
-        assert os.path.isfile(Xpath), 'X file does not exist'
-        assert os.path.isfile(ypath), 'y file does not exist'
+    def save_datasets(self, folder: str):
+        pickle.dump(self.X, open(os.path.join(folder, f"{self.time_d}_{self.output_params}_X.bin"), 'wb'))
+        pickle.dump(self.y, open(os.path.join(folder, f"{self.time_d}_{self.output_params}_y.bin"), 'wb'))
 
-        self.X: torch.Tensor = pickle.load(open(Xpath, 'rb'))
-        self.y: torch.Tensor = pickle.load(open(ypath, 'rb'))
+        config = {
+            'X': os.path.join(folder, f"{self.time_d}_{self.output_params}_X.bin"),
+            'y': os.path.join(folder, f"{self.time_d}_{self.output_params}_y.bin"),
+            'time_d': self.time_d,
+            'outputs': self.output_params,
+            'scl': self.scl,
+            'low_max': self.max_low
+        }
 
-        assert self.X.shape[0] / self.time_d == self.X.shape[0] // self.time_d, 'time_d does not seem to be correct for this dataset'
-        assert self.y.shape[0] / self.output_params == self.y.shape[0] // self.output_params , 'the output_params seem to be incorrect for this dataset'
-        
-        self.X = self.X.reshape((self.X.shape[0] // self.time_d, self.time_d, self.X.shape[-1]))
-        self.y = self.y.reshape((self.y.shape[0] // self.output_params, self.output_params))
+        with open(os.path.join(folder, f"{self.time_d}_{self.output_params}_config.json"), 'w') as f:
+            f.write(json.dumps(config))
 
-        self.scl = scl
+    def load_datasets(self, config_path: str):
+        with open(config_path, 'r') as f:
+            config = json.loads(f.read())
+
+        self.time_d = config['time_d']
+        self.output_params = config['outputs']
+        self.scl = config['scl']
+        self.max_low = config['low_max']
+
+        assert os.path.isfile(config['X']), 'X file does not exist'
+        assert os.path.isfile(config['y']), 'y file does not exist'
+
+        self.X: torch.Tensor = pickle.load(open(config['X'], 'rb'))
+        self.y: torch.Tensor = pickle.load(open(config['y'], 'rb'))
 
     def save_data(self, data: dict, path: str):
         if os.path.isfile(path):

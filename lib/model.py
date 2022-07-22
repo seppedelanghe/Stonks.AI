@@ -23,7 +23,7 @@ class CNNBlock(nn.Module):
 
 
 class ConvLSTM(nn.Module):
-    def __init__(self, time_d: int = 10, n_inputs: int = 6, n_outputs: int = 5):
+    def __init__(self, time_d: int, n_inputs: int, n_outputs: int):
         super(ConvLSTM, self).__init__()
         self.time_d = time_d
         self.n_outputs = n_outputs

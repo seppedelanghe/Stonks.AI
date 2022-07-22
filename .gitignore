@@ -16,3 +16,4 @@ __pycache__
 # archives
 *.zip
 *.7z
+*.gz
