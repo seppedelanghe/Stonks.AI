@@ -79,8 +79,11 @@ class StonksDataset(Dataset):
 
     def make_dataset(self, d: List[List[float]]):
         d: torch.Tensor = self.to_tensors(d)
-        x = torch.stack([d[i:i + self.time_d] for i in range(d.shape[0] - self.time_d - 1) if not torch.isnan(torch.sum(d[i:i + self.time_d]))])
-        rows = torch.stack([d[i + self.time_d + 1][:-1] for i in range(d.shape[0] - self.time_d - 1) if not torch.isnan(torch.sum(d[i + self.time_d + 1][:-1]))])
+        if d.shape[0] <= self.time_d:
+            return
+
+        x = torch.stack([d[i:i + self.time_d] for i in range(d.shape[0] - self.time_d - 1) if not bool(torch.isnan(torch.sum(d[i:i + self.time_d])))])
+        rows = torch.stack([d[i + self.time_d + 1][:-1] for i in range(d.shape[0] - self.time_d - 1) if not bool(torch.isnan(torch.sum(d[i + self.time_d + 1][:-1])))])
 
         if type(self.X) == type(None):
             self.X = x
