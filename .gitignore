@@ -1,5 +1,6 @@
 wandb
 __pycache__
+plumber/*
 
 # data
 *.png

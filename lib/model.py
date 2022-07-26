@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from lib.utils import prod
 
 class CNNBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, **kwargs):
@@ -26,25 +25,53 @@ class ConvLSTM(nn.Module):
     def __init__(self, time_d: int, n_inputs: int, n_outputs: int):
         super(ConvLSTM, self).__init__()
         self.time_d = time_d
+        self.small_time_d = 5
         self.n_outputs = n_outputs
         self.n_inputs = n_inputs
         self.dropout = 0.1
-        self.n_filters = 32
+        self.n_filters = (64, 128, 32)
 
-        self.cnn = CNNBlock(
+        self.cnn = self._make_conv()
+        self.cnn_bn = nn.BatchNorm1d(self.n_inputs * self.n_outputs * self.n_filters[-1])
+
+        # large lstm for all data
+        self.lstm = nn.LSTM(n_inputs, time_d, 2)
+        self.lstm_bn = nn.BatchNorm1d(time_d)
+
+        # small lstm for most recent data
+        self.lstm_s = nn.LSTM(n_inputs, self.small_time_d, 1)
+        self.lstm_s_bn = nn.BatchNorm1d(self.small_time_d)
+
+        self.mid_neurons = (self.time_d ** 2) + (self.small_time_d ** 2) + (self.n_inputs * self.n_outputs * self.n_filters[-1])
+        self.final = self._create_output_layers()
+
+    def _make_conv(self):
+        layers = [
+            CNNBlock(
                     1,        # channels
-                    out_channels=self.n_filters,  # filters
+                    out_channels=self.n_filters[0],  # filters
                     kernel_size=2,   # kernel size
                     stride=2,        # stride
                     padding=3,       # padding
-            )
-        self.cnn_bn = nn.BatchNorm2d(self.n_filters)
-
-        self.lstm = nn.LSTM(time_d, n_inputs, 2)
-        self.lstm_bn = nn.BatchNorm1d(n_inputs)
-
-        self.mid_neurons = (self.n_inputs ** 2) + (self.n_filters * prod(self.cnn.outshape(self.n_inputs, self.time_d)))
-        self.final = self._create_output_layers()
+            ),
+            CNNBlock(
+                    self.n_filters[0],     # channels
+                    out_channels=self.n_filters[1],  # filters
+                    kernel_size=2,   # kernel size
+                    stride=2,        # stride
+                    padding=3,       # padding
+            ),
+            nn.MaxPool2d(2, 2),
+            CNNBlock(
+                    self.n_filters[1],        # channels
+                    out_channels=self.n_filters[2],  # filters
+                    kernel_size=2,   # kernel size
+                    stride=2,        # stride
+                    padding=3,       # padding
+            ),
+            nn.Flatten(),
+        ]
+        return nn.Sequential(*layers)
 
     def _create_output_layers(self):
         return nn.Sequential(
@@ -60,16 +87,20 @@ class ConvLSTM(nn.Module):
         )
 
     def forward(self, x):
-        xa, (h_n, c_n) = self.lstm(x.reshape(-1, self.n_inputs, self.time_d))
-        xa = self.lstm_bn(xa)
+        xa, (h_n, c_n) = self.lstm(x)
+        xa: torch.Tensor = self.lstm_bn(xa)
 
         xb = self.cnn(x.reshape(-1, 1, self.time_d, self.n_inputs))
-        xb = self.cnn_bn(xb)
+        xb: torch.Tensor = self.cnn_bn(xb)
 
-        xa = xa.reshape(-1, self.n_inputs * self.n_inputs)
-        xb = xb.reshape(-1, self.n_filters * prod(self.cnn.outshape(self.n_inputs, self.time_d)))
+        xc, (h_n_s, c_n_s) = self.lstm_s(x[:, :self.small_time_d])
+        xc: torch.Tensor = self.lstm_s_bn(xc)
 
-        x = torch.hstack((xa, xb))
+        xa = xa.reshape(-1, self.time_d ** 2)
+        xb = xb.reshape(-1, self.n_inputs * self.n_outputs * self.n_filters[-1])
+        xc = xc.reshape(-1, self.small_time_d ** 2)
+
+        x = torch.hstack((xa, xc, xb))
 
         # forward through output layers and return
         return self.final(x)
