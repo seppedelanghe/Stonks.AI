@@ -1,27 +1,68 @@
+from genericpath import isfile
 import os, gzip, shutil, torch, pickle, json
+import re
 import pandas as pd
 
 from tqdm import tqdm
 from torch.utils.data import Dataset
-from typing import List
+from typing import List, Optional, Union
 import numpy as np
 
-class StonksDataset(Dataset):
-    def __init__(self, time_d: int = 10, output_params: int = 4):
-        self.time_d = time_d
-        self.output_params = output_params
+from pydantic import BaseModel
 
-        self.max_low = 5e3
-        self.cols = ['Low', 'Open', 'High', 'Close', 'Volume']
-        self.compressed = False
+class StockDatasetConfig(BaseModel):
+    ticker: str
+    path: str = './'
+    time: int = 30
 
-        self.X = None
-        self.y = None
+    @property
+    def save_path(self):
+        return os.path.join(self.path, self.ticker, 'config.json')
 
-        self.scl = {
-            'money': (0.0, 1.0),
-            'volume': (0.0, 1.0),
-        }
+    @property
+    def Xpath(self):
+        return os.path.join(self.path, self.ticker, 'X.bin')
+    
+    @property
+    def ypath(self):
+        return os.path.join(self.path, self.ticker, 'y.bin')
+
+class StockDataset(Dataset):
+    def __init__(self, config: StockDatasetConfig, X: Optional[torch.Tensor] = None, y: Optional[torch.Tensor] = None):
+        super(StockDataset, self).__init__()
+
+        self.config = config
+
+        self.X = X
+        self.y = y
+
+    def save(self):
+        os.makedirs(self.config.path, exist_ok=True)
+
+        fx, fy = open(self.config.Xpath, 'wb'), open(self.config.ypath, 'wb')
+        
+        pickle.dump(self.X, fx)
+        pickle.dump(self.y, fy)
+        
+        fx.close()
+        fy.close()
+
+        with open(self.config.save_path, 'w') as f:
+            f.write(self.config.json())
+
+        return True
+
+    @classmethod
+    def load(cls, config_path: str):
+        sd = cls(config=StockDatasetConfig.parse_file(config_path))
+
+        if os.path.isfile(sd.config.Xpath):
+            with open(sd.config.Xpath, 'rb') as fx:
+                sd.X = pickle.loads(fx)
+
+        if os.path.isfile(sd.config.ypath):
+            with open(sd.config.ypath, 'rb') as fy:
+                sd.y = pickle.loads(fy)
 
     def __len__(self):
         return 0 if type(self.X) == type(None) else len(self.X)
@@ -29,144 +70,72 @@ class StonksDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
+class StonksData:
+    def __init__(self, csv_path: str, time: int = 30, output_params: int = 4):
+        self.csv_path = csv_path
+        self.time = time
+        self.output_params = output_params
+
+        self.cols = ['Close']
+
+    '''
+        get stock ticker symbol from csv path
+    '''
     @staticmethod
     def ticker_from_path(path: str):
         return os.path.basename(path)[:-4]
 
+    '''
+        Convert ndarray to tensors
+    '''
     @staticmethod
-    def get_all_csv_files(dir: str):
-        files = []
-        a = os.listdir(dir)
-        for b in a:
-            if os.path.isdir(os.path.join(dir, b)):
-                c = os.path.join(dir, b, 'csv')
-                if os.path.isdir(c):
-                    files += [os.path.join(c, f) for f in os.listdir(c) if f[-4:] == '.csv']
-
-        return files
-
-    @staticmethod
-    def to_tensors(d):
+    def to_tensors(d: np.ndarray):
         return torch.from_numpy(d)
 
-    def find_ranges(self):
-        money = self.X[:, :-1]
-        volume = self.X[:, -1:]
+    '''
+        return min max values for data
+    '''
+    @staticmethod
+    def find_ranges(data: torch.Tensor):
+        return float(torch.min(data)), float(torch.max(data))
 
-        self.scl['money'] = (float(torch.min(money)), float(torch.max(money)))
-        self.scl['volume'] = (float(torch.min(volume)), float(torch.max(volume)))
+    '''
+        normalize data to values between 0 and 1
+    '''
+    @staticmethod
+    def normalize(data: torch.Tensor):
+        return (data - torch.min(data)) / (torch.max(data) - torch.min(data))
 
-    def scale(self, data: torch.Tensor, new_min=0, new_max=1, with_volume: bool = True):
-        money = (data[:, :, :4] if with_volume else data - self.scl['money'][0]) / (self.scl['money'][1] - self.scl['money'][0]) * (new_max - new_min) + new_min
-        
-        if not with_volume:
-            return money
+    '''
+        inverse normalization
+    '''
+    @staticmethod
+    def inverse_normalize(data: torch.Tensor, new_min: float, new_max: float, curr_max = 1):
+        return data / curr_max * (new_max - new_min) + new_min
 
-        volume = (data[:, :, -1:] - self.scl['volume'][0]) / (self.scl['volume'][1] - self.scl['volume'][0]) * (new_max - new_min) + new_min
-        data[:, :, :4] = money
-        data[:, :, -1:] = volume
-        return data
+    @staticmethod
+    def make_dataset(data: Union[torch.Tensor, np.ndarray], time: int = 30):        
+        if data.shape[0] <= time:
+            raise Exception(f"length of data needs to be larger than time. Is {data.shape[0]}, needs to be > {time}")
 
-    def inverse_scale(self, data: torch.Tensor, curr_max = 1, with_vol: bool = False):
-        money = data[:, :-1] if with_vol else data
-        money = money / curr_max * (self.scl['money'][1] - self.scl['money'][0]) + self.scl['money'][0]
+        if type(data) == np.ndarray:
+            data = StonksData.to_tensors(data)
 
-        if not with_vol:
-            return money
-        
-        volume = data[:, -1:] / curr_max * (self.scl['volume'][1] - self.scl['volume'][0]) + self.scl['volume'][0]
-        return torch.hstack((money, volume))
+        x = torch.stack([data[i:i + time] for i in range(data.shape[0] - time - 1) if not bool(torch.isnan(torch.sum(data[i:i + time])))]).float()
+        y = torch.stack([data[i + time + 1] for i in range(data.shape[0] - time - 1) if not bool(torch.isnan(torch.sum(data[i + time + 1])))]).float()
 
-    def make_dataset(self, d: List[List[float]]):
-        d: torch.Tensor = self.to_tensors(d)
-        if d.shape[0] <= self.time_d:
-            return
+        return x, y
 
-        x = torch.stack([d[i:i + self.time_d] for i in range(d.shape[0] - self.time_d - 1) if not bool(torch.isnan(torch.sum(d[i:i + self.time_d])))])
-        rows = torch.stack([d[i + self.time_d + 1][:-1] for i in range(d.shape[0] - self.time_d - 1) if not bool(torch.isnan(torch.sum(d[i + self.time_d + 1][:-1])))])
+    def clean_dataframe(self, df: pd.DataFrame):
+        return df[self.cols].dropna(axis=0)
 
-        if type(self.X) == type(None):
-            self.X = x
-            self.y = rows
-        else:
-            self.X = torch.concat((self.X, x))
-            self.y = torch.concat((self.y, rows))
-        
-    def make_datasets(self, data: dict):
-        [self.make_dataset(data[ticker]) for ticker in tqdm(data, total=len(data), leave=False)]
+    def read_csv(self, file: str, save_dir: str = './'):
+        df = self.clean_dataframe(pd.read_csv(file))
+        x, y = self.make_dataset(df.to_numpy())
+        config = StockDatasetConfig(ticker=self.ticker_from_path(file), path=save_dir, time=self.time)
+        return StockDataset(config=config, X=x, y=y)
 
-        # scale
-        self.find_ranges()
-        self.X = self.scale(self.X).float()
-        self.y = self.scale(self.y, with_volume=False).float()
-
-    def large_df(self, path):
-        files = self.get_all_csv_files(path)
-        return pd.concat((pd.read_csv(f) for i, f in tqdm(enumerate(files), total=len(files), leave=False)), ignore_index=True)
-
-    def filter_data(self, df: pd.DataFrame):
-        return df[self.cols][df['Low'] < self.max_low].dropna(axis=0)
-
-    def format_file(self, path: str):
-        df = pd.read_csv(path)
-        df = self.filter_data(df)
-        return df.to_numpy()
-
-    def from_csvs(self, path):
-        files = self.get_all_csv_files(path)
-        loop = tqdm(files, total=len(files), leave=False)
-        return {self.ticker_from_path(path): self.format_file(path) for path in loop}
-
-    def save_datasets(self, folder: str):
-        pickle.dump(self.X, open(os.path.join(folder, f"{self.time_d}_{self.output_params}_X.bin"), 'wb'))
-        pickle.dump(self.y, open(os.path.join(folder, f"{self.time_d}_{self.output_params}_y.bin"), 'wb'))
-
-        config = {
-            'X': os.path.join(folder, f"{self.time_d}_{self.output_params}_X.bin"),
-            'y': os.path.join(folder, f"{self.time_d}_{self.output_params}_y.bin"),
-            'time_d': self.time_d,
-            'outputs': self.output_params,
-            'scl': self.scl,
-            'low_max': self.max_low
-        }
-
-        with open(os.path.join(folder, f"{self.time_d}_{self.output_params}_config.json"), 'w') as f:
-            f.write(json.dumps(config))
-
-    def load_datasets(self, config_path: str):
-        with open(config_path, 'r') as f:
-            config = json.loads(f.read())
-
-        self.time_d = config['time_d']
-        self.output_params = config['outputs']
-        self.scl = config['scl']
-        self.max_low = config['low_max']
-
-        assert os.path.isfile(config['X']), 'X file does not exist'
-        assert os.path.isfile(config['y']), 'y file does not exist'
-
-        self.X: torch.Tensor = pickle.load(open(config['X'], 'rb'))
-        self.y: torch.Tensor = pickle.load(open(config['y'], 'rb'))
-
-    def save_data(self, data: dict, path: str):
-        if os.path.isfile(path):
-            raise Exception('File already exists')
-
-        pickle.dump(data, open(path, 'wb'))
-
-        if self.compressed:
-            with open(path, 'rb') as f_in:
-                with gzip.open(path+'.gz', 'wb') as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-
-    def load_data(self, path: str):
-        if not os.path.isfile(path):
-            raise Exception('File does not exist')
-
-        data = None
-        if self.compressed:
-            with gzip.open(path, 'rb') as f_in:
-                with open(path.replace('.gz', ''), 'wb') as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-
-        return pickle.load(open(path.replace('.gz', '') if self.compressed else path, 'rb'))
+    def prepare(self, tickers: List[str], save_dir: str):
+        csvs = [os.path.join(self.csv_path, f"{tick}.csv") for tick in tickers if os.path.isfile(os.path.join(self.csv_path, f"{tick}.csv"))]
+        datasets = [self.read_csv(csv, save_dir) for csv in csvs]
+        return [d.config for d in datasets if d.save()]
