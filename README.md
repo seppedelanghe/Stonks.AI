@@ -7,12 +7,11 @@ It uses PyTorch as the framework and W&B with nice candle plots to visualize it'
 
 ## Current status
 
-It predicts the stock price for the next day, but not good enough.
+A trained model can predict the stock price pretty well using the follow hyper parameters:
+- TIME: `30`
+- LAYERS: `2`
 
 ## Roadmap
 
-- Improve dataset + use of data
-- Improve Conv layers and LSTM
-- Decrease size of vanilla nearons (optimize)
-- Improve loss function 
-    
+- Multi dim predictions => close, open, low and high
+- Improve loss function
