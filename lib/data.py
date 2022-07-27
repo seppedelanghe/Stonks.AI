@@ -5,7 +5,7 @@ import numpy as np
 import pandas_datareader as pdr
 
 from torch.utils.data import Dataset
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 from pydantic import BaseModel
 
 
@@ -13,6 +13,7 @@ class StockDatasetConfig(BaseModel):
     ticker: str
     time: int = 30
     base_dir: str = './'
+    ranges: Optional[Tuple[float, float]] = None
 
     @property
     def path(self):
@@ -111,7 +112,7 @@ class StonksData:
     def normalize(data: Union[torch.Tensor, np.ndarray]):
         if type(data) == np.ndarray:
             data = StonksData.to_tensors(data)
-        return (data - torch.min(data)) / (torch.max(data) - torch.min(data))
+        return (data - torch.min(data)) / (torch.max(data) - torch.min(data)), (float(torch.min(data)), float(torch.max(data)))
 
     '''
         inverse normalization
@@ -143,25 +144,27 @@ class StonksData:
 
     def _handle_df(self, df: pd.DataFrame):
         df = self.clean_dataframe(df)
-        data = self.normalize(df.to_numpy())
-        return self.make_dataset(data)
+        data, ranges = self.normalize(df.to_numpy())
+        return self.make_dataset(data), ranges
 
     def read_csv(self, file: str, save_dir: str = './'):
-        config = StockDatasetConfig(ticker=self.ticker_from_path(file), base_dir=save_dir, time=self.time)
         if self.prediction_mode:
-            x = self._handle_df(pd.read_csv(file))
+            x, ranges = self._handle_df(pd.read_csv(file))
+            config = StockDatasetConfig(ticker=self.ticker_from_path(file), base_dir=save_dir, time=self.time, ranges=ranges)
             return StockDataset(config=config, X=x)
 
-        x, y = self._handle_df(pd.read_csv(file))
+        (x, y), ranges = self._handle_df(pd.read_csv(file))
+        config = StockDatasetConfig(ticker=self.ticker_from_path(file), base_dir=save_dir, time=self.time, ranges=ranges)
         return StockDataset(config=config, X=x, y=y)
 
     def from_yahoo(self, ticker: str, save_dir: str = './'):
-        config = StockDatasetConfig(ticker=ticker, base_dir=save_dir, time=self.time)
         if self.prediction_mode:
-            x = self._handle_df(pdr.get_data_yahoo(ticker))
+            x, ranges = self._handle_df(pdr.get_data_yahoo(ticker))
+            config = StockDatasetConfig(ticker=ticker, base_dir=save_dir, time=self.time, ranges=ranges)
             return StockDataset(config=config, X=x)
 
-        x, y = self._handle_df(pdr.get_data_yahoo(ticker))
+        (x, y), ranges = self._handle_df(pdr.get_data_yahoo(ticker))
+        config = StockDatasetConfig(ticker=ticker, base_dir=save_dir, time=self.time, ranges=ranges)
         return StockDataset(config=config, X=x, y=y)
 
     def prepare(self, tickers: List[str], save_dir: str, yahoo: bool = False, csv_path: str = './csvs/'):

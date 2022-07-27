@@ -42,6 +42,12 @@ def load_checkpoint(path: str, model, optim, device: str = 'cuda'):
     model.load_state_dict(checkpoint.get('model'))
     optim.load_state_dict(checkpoint.get('optim'))
 
+    ''''
+        temp fix for bug in pytorch => should be fixed in next minor update
+        https://github.com/pytorch/pytorch/issues/80809
+    '''
+    optim.param_groups[0]['capturable'] = True
+
 def calc_diff(y, y_pred, precision: int = 4):
     precision = 10 ** precision
     return float(torch.mean(input=(torch.round(y * precision) / precision) - (torch.round(y_pred * precision) / precision))) * 100

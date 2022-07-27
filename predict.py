@@ -54,13 +54,16 @@ def predict(configs: List[StockDatasetConfig]):
         x = dataset.X[-1:]
         y = m(x)
 
-        results[config.ticker] = y.detach().numpy()
+        results[config.ticker] = [
+            float(StonksData.inverse_normalize(x[-1, -1].squeeze(), config.ranges[0], config.ranges[1])),
+            float(StonksData.inverse_normalize(y.detach(), config.ranges[0],config.ranges[1]).squeeze())
+        ]
 
     return results
 
 def print_results(results: dict):
     for ticker, val in results.items():
-        print(f"{ticker}:\t{val}")
+        print(f"{ticker}:\ncurrent:\t{val[0]}\nprediction:\t{val[1]}")
 
 if __name__ == "__main__":
     

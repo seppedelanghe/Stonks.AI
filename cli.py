@@ -23,7 +23,11 @@ parser.add_argument('--batch', help='the batch size for training. this depends h
 parser.add_argument('--epochs', help='for how many iterations should the model train', type=int, default=10)
 parser.add_argument('--lr', help="the learning rate decides how fast the model should learn from it's findings. 0.001 is the default", type=float, default=1e-3)
 
+parser.add_argument('--resume', action=argparse.BooleanOptionalAction, help='resume training for an existing model. The MODEL argument needs to be supplied if used.')
+parser.add_argument('--model', help='path to the saved model checkpoint to load', type=str)
+
 parser.add_argument('--cuda', action=argparse.BooleanOptionalAction, help='use cuda to train the model. Only supported on systems with a Nvidia GPU.')
+
 
 args = parser.parse_args()
 
@@ -42,7 +46,6 @@ SHUFFLE = True
 DATA_WORKERS = 1
 CSV_PATH = 'stock_market_data/forbes2000/csv/'
 
-
 '''
     Setup
 '''
@@ -52,6 +55,9 @@ m = LSTMModel(1, TIME, LAYERS, 1, DEVICE).to(DEVICE)
 
 loss_fn = LSTMLoss()
 opt = Adam(m.parameters(), lr=LR)
+
+if args.resume:
+    load_checkpoint(args.model, m, opt, DEVICE)
 
 stonks = StonksData(TIME)
 configs = stonks.prepare(TICKERS, './data/', csv_path=CSV_PATH)
