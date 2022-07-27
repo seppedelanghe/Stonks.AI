@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from lib.modules import StockTimeModule
+
 class CNNBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, **kwargs):
         super(CNNBlock, self).__init__()
@@ -21,86 +23,110 @@ class CNNBlock(nn.Module):
         return int((h + 2 * self.padding - 1 * (self.kernel_size - 1) - 1) / self.stride + 1), int((w + 2 * self.padding - 1 * (self.kernel_size - 1) - 1) / self.stride + 1)
 
 
-class ConvLSTM(nn.Module):
-    def __init__(self, time_d: int, n_inputs: int, n_outputs: int):
-        super(ConvLSTM, self).__init__()
-        self.time_d = time_d
-        self.small_time_d = 5
-        self.n_outputs = n_outputs
-        self.n_inputs = n_inputs
-        self.dropout = 0.1
-        self.n_filters = (64, 128, 32)
+class LSTMModel(nn.Module):
+    def __init__(self, inputs: int, hidden: int, layers: int, outputs: int, device: str):
+        super(LSTMModel, self).__init__()
 
-        self.cnn = self._make_conv()
-        self.cnn_bn = nn.BatchNorm1d(self.n_inputs * self.n_outputs * self.n_filters[-1])
+        self.hidden = hidden
+        self.outputs = outputs
+        self.layers = layers
+        self.inputs = inputs
+        self.device = device
 
-        # large lstm for all data
-        self.lstm = nn.LSTM(n_inputs, time_d, 2)
-        self.lstm_bn = nn.BatchNorm1d(time_d)
+        self.lstm = nn.LSTM(inputs, hidden, layers, batch_first=True)
+        self.fc = nn.Linear(hidden, outputs)
 
-        # small lstm for most recent data
-        self.lstm_s = nn.LSTM(n_inputs, self.small_time_d, 1)
-        self.lstm_s_bn = nn.BatchNorm1d(self.small_time_d)
+    def forward(self, x: torch.Tensor):
+        # Initialize hidden state with zeros
+        h0 = torch.zeros(self.layers, x.size(0), self.hidden).to(self.device).requires_grad_()
 
-        self.mid_neurons = (self.time_d ** 2) + (self.small_time_d ** 2) + (self.n_inputs * self.n_outputs * self.n_filters[-1])
-        self.final = self._create_output_layers()
+        # Initialize cell state
+        c0 = torch.zeros(self.layers, x.size(0), self.hidden).to(self.device).requires_grad_()
 
-    def _make_conv(self):
-        layers = [
-            CNNBlock(
-                    1,        # channels
-                    out_channels=self.n_filters[0],  # filters
-                    kernel_size=2,   # kernel size
-                    stride=2,        # stride
-                    padding=3,       # padding
-            ),
-            CNNBlock(
-                    self.n_filters[0],     # channels
-                    out_channels=self.n_filters[1],  # filters
-                    kernel_size=2,   # kernel size
-                    stride=2,        # stride
-                    padding=3,       # padding
-            ),
-            nn.MaxPool2d(2, 2),
-            CNNBlock(
-                    self.n_filters[1],        # channels
-                    out_channels=self.n_filters[2],  # filters
-                    kernel_size=2,   # kernel size
-                    stride=2,        # stride
-                    padding=3,       # padding
-            ),
-            nn.Flatten(),
-        ]
-        return nn.Sequential(*layers)
+        # We need to detach as we are doing truncated backpropagation through time (BPTT)
+        # If we don't, we'll backprop all the way to the start even after going through another batch
+        out, (hn, cn) = self.lstm(x, (h0.detach(), c0.detach()))
 
-    def _create_output_layers(self):
-        return nn.Sequential(
-            nn.Linear(self.mid_neurons, (self.time_d * self.n_inputs) ** 2),
-            nn.Dropout(self.dropout),
-            nn.LeakyReLU(0.1),
+        # Index hidden state of last time step
+        # out.size() --> batch_size, hidden, batch_size
+        # out[:, -1, :] --> batch_size, batch_size --> just want last time step hidden states! 
+        out = self.fc(out[:, -1, :])
+        return out
 
-            nn.Linear((self.time_d * self.n_inputs) ** 2, self.time_d * self.n_inputs),
-            nn.Dropout(self.dropout),
-            nn.LeakyReLU(0.1),
+# class ConvLSTM(nn.Module):
+#     def __init__(self, time_d: int, n_inputs: int, n_outputs: int, device: str = 'cuda'):
+#         super(ConvLSTM, self).__init__()
+#         self.time_d = time_d
+#         self.n_outputs = n_outputs
+#         self.n_inputs = n_inputs
+#         self.dropout = 0.1
+#         self.n_filters = (32, 32, 32)
 
-            nn.Linear(self.time_d * self.n_inputs, self.n_outputs),
-        )
+#         # cnn for patterns
+#         self.cnn = self._make_conv()
 
-    def forward(self, x):
-        xa, (h_n, c_n) = self.lstm(x)
-        xa: torch.Tensor = self.lstm_bn(xa)
+#         # lstm for patterns
+#         self.lstm = nn.LSTM(n_inputs, time_d, 2)
+#         self.lstm_bn = nn.BatchNorm1d(self.time_d ** 2)
 
-        xb = self.cnn(x.reshape(-1, 1, self.time_d, self.n_inputs))
-        xb: torch.Tensor = self.cnn_bn(xb)
+#         # custom stock data neuron for short term
+#         self.stm = StockTimeModule(self.time_d, self.n_outputs, 0.95, 2, device)
 
-        xc, (h_n_s, c_n_s) = self.lstm_s(x[:, :self.small_time_d])
-        xc: torch.Tensor = self.lstm_s_bn(xc)
+#         self.mid_neurons = self.time_d ** 2 + self.n_outputs + 768
+#         self.final = self._create_output_layers()
 
-        xa = xa.reshape(-1, self.time_d ** 2)
-        xb = xb.reshape(-1, self.n_inputs * self.n_outputs * self.n_filters[-1])
-        xc = xc.reshape(-1, self.small_time_d ** 2)
+#     def _make_conv(self):
+#         layers = [
+#             CNNBlock(
+#                     1,        # channels
+#                     out_channels=self.n_filters[0],  # filters
+#                     kernel_size=2,   # kernel size
+#                     stride=2,        # stride
+#                     padding=3,       # padding
+#             ),
+#             CNNBlock(
+#                     self.n_filters[0],     # channels
+#                     out_channels=self.n_filters[1],  # filters
+#                     kernel_size=2,   # kernel size
+#                     stride=2,        # stride
+#                     padding=3,       # padding
+#             ),
+#             nn.MaxPool2d(2, 2),
+#             CNNBlock(
+#                     self.n_filters[1],        # channels
+#                     out_channels=self.n_filters[2],  # filters
+#                     kernel_size=2,   # kernel size
+#                     stride=2,        # stride
+#                     padding=3,       # padding
+#             ), # => outshape is 7x3x32 => 896
+#             nn.Flatten(),
+#             nn.BatchNorm1d(768)
+#         ]
+#         return nn.Sequential(*layers)
 
-        x = torch.hstack((xa, xc, xb))
+#     def _create_output_layers(self):
+#         return nn.Sequential(
+#             nn.Linear(self.mid_neurons, (self.time_d * self.n_inputs) ** 2),
+#             nn.Dropout(self.dropout),
+#             nn.LeakyReLU(0.1),
 
-        # forward through output layers and return
-        return self.final(x)
+#             nn.Linear((self.time_d * self.n_inputs) ** 2, self.time_d * self.n_inputs),
+#             nn.Dropout(self.dropout),
+#             nn.LeakyReLU(0.1),
+
+#             nn.Linear(self.time_d * self.n_inputs, self.n_outputs),
+#         )
+
+#     def forward(self, x):
+#         xa, (h_n, c_n) = self.lstm(x)
+#         xa = xa.reshape(-1, self.time_d ** 2)
+#         xa = self.lstm_bn(xa)
+
+#         xb: torch.Tensor = self.cnn(x.reshape(-1, 1, self.time_d, self.n_inputs))
+#         xc: torch.Tensor = self.stm(x[:, :, :4])
+
+#         # stack all outputs
+#         x = torch.hstack((xa, xc, xb))
+
+#         # forward through output layers and return
+#         return self.final(x)

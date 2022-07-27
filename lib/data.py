@@ -12,20 +12,24 @@ from pydantic import BaseModel
 
 class StockDatasetConfig(BaseModel):
     ticker: str
-    path: str = './'
     time: int = 30
+    base_dir: str = './'
 
     @property
-    def save_path(self):
-        return os.path.join(self.path, self.ticker, 'config.json')
+    def path(self):
+        return os.path.join(self.base_dir, self.ticker)
+
+    @property
+    def config_path(self):
+        return os.path.join(self.path, 'config.json')
 
     @property
     def Xpath(self):
-        return os.path.join(self.path, self.ticker, 'X.bin')
+        return os.path.join(self.path, 'X.bin')
     
     @property
     def ypath(self):
-        return os.path.join(self.path, self.ticker, 'y.bin')
+        return os.path.join(self.path, 'y.bin')
 
 class StockDataset(Dataset):
     def __init__(self, config: StockDatasetConfig, X: Optional[torch.Tensor] = None, y: Optional[torch.Tensor] = None):
@@ -47,7 +51,7 @@ class StockDataset(Dataset):
         fx.close()
         fy.close()
 
-        with open(self.config.save_path, 'w') as f:
+        with open(self.config.config_path, 'w') as f:
             f.write(self.config.json())
 
         return True
@@ -58,11 +62,13 @@ class StockDataset(Dataset):
 
         if os.path.isfile(sd.config.Xpath):
             with open(sd.config.Xpath, 'rb') as fx:
-                sd.X = pickle.loads(fx)
+                sd.X = pickle.loads(fx.read())
 
         if os.path.isfile(sd.config.ypath):
             with open(sd.config.ypath, 'rb') as fy:
-                sd.y = pickle.loads(fy)
+                sd.y = pickle.loads(fy.read())
+
+        return sd
 
     def __len__(self):
         return 0 if type(self.X) == type(None) else len(self.X)
@@ -71,10 +77,9 @@ class StockDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 class StonksData:
-    def __init__(self, csv_path: str, time: int = 30, output_params: int = 4):
+    def __init__(self, csv_path: str, time: int = 30):
         self.csv_path = csv_path
         self.time = time
-        self.output_params = output_params
 
         self.cols = ['Close']
 
@@ -96,21 +101,27 @@ class StonksData:
         return min max values for data
     '''
     @staticmethod
-    def find_ranges(data: torch.Tensor):
+    def find_ranges(data: Union[torch.Tensor, np.ndarray]):
+        if type(data) == np.ndarray:
+            data = StonksData.to_tensors(data)
         return float(torch.min(data)), float(torch.max(data))
 
     '''
         normalize data to values between 0 and 1
     '''
     @staticmethod
-    def normalize(data: torch.Tensor):
+    def normalize(data: Union[torch.Tensor, np.ndarray]):
+        if type(data) == np.ndarray:
+            data = StonksData.to_tensors(data)
         return (data - torch.min(data)) / (torch.max(data) - torch.min(data))
 
     '''
         inverse normalization
     '''
     @staticmethod
-    def inverse_normalize(data: torch.Tensor, new_min: float, new_max: float, curr_max = 1):
+    def inverse_normalize(data: Union[torch.Tensor, np.ndarray], new_min: float, new_max: float, curr_max = 1):
+        if type(data) == np.ndarray:
+            data = StonksData.to_tensors(data)
         return data / curr_max * (new_max - new_min) + new_min
 
     @staticmethod
@@ -131,8 +142,9 @@ class StonksData:
 
     def read_csv(self, file: str, save_dir: str = './'):
         df = self.clean_dataframe(pd.read_csv(file))
-        x, y = self.make_dataset(df.to_numpy())
-        config = StockDatasetConfig(ticker=self.ticker_from_path(file), path=save_dir, time=self.time)
+        data = self.normalize(df.to_numpy())
+        x, y = self.make_dataset(data)
+        config = StockDatasetConfig(ticker=self.ticker_from_path(file), base_dir=save_dir, time=self.time)
         return StockDataset(config=config, X=x, y=y)
 
     def prepare(self, tickers: List[str], save_dir: str):

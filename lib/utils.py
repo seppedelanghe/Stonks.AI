@@ -1,5 +1,7 @@
 import os, torch
 from datetime import datetime
+import pandas as pd
+from tqdm import tqdm
 
 def prod(val):
     res = 1 
@@ -43,3 +45,18 @@ def load_checkpoint(path: str, model, optim, device: str = 'cuda'):
 def calc_diff(y, y_pred, precision: int = 4):
     precision = 10 ** precision
     return float(torch.mean(input=(torch.round(y * precision) / precision) - (torch.round(y_pred * precision) / precision))) * 100
+
+def get_all_csv_files(dir: str):
+    files = []
+    a = os.listdir(dir)
+    for b in a:
+        if os.path.isdir(os.path.join(dir, b)):
+            c = os.path.join(dir, b, 'csv')
+            if os.path.isdir(c):
+                files += [os.path.join(c, f) for f in os.listdir(c) if f[-4:] == '.csv']
+
+    return files
+
+def large_df(path):
+    files = get_all_csv_files(path)
+    return pd.concat((pd.read_csv(f) for i, f in tqdm(enumerate(files), total=len(files), leave=False)), ignore_index=True)
