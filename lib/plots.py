@@ -1,9 +1,8 @@
-import os, torch, io, sys
+import os, torch, io
 import plotly.graph_objects as go
 import numpy as np
 import matplotlib.pyplot as plt
 
-from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from PIL import Image
 from datetime import datetime
 
