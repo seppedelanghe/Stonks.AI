@@ -25,7 +25,7 @@ TIME = 30
 LAYERS = 2
 EPOCHS = 10
 BATCH_SIZE = 8
-SHUFFLE = False
+SHUFFLE = True
 LR = 1e-4
 DEVICE = "cuda"
 DATA_WORKERS = 1
@@ -45,8 +45,8 @@ m = LSTMModel(1, TIME, LAYERS, 1, DEVICE).to(DEVICE)
 loss_fn = LSTMLoss()
 opt = Adam(m.parameters(), lr=LR)
 
-stonks = StonksData(CSV_PATH, TIME)
-configs = stonks.prepare(TICKERS, './data/')
+stonks = StonksData(TIME)
+configs = stonks.prepare(TICKERS, './data/', csv_path=CSV_PATH)
 
 
 def test_fn(dataset: StockDataset, epoch: int = 1):

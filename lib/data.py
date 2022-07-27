@@ -1,11 +1,13 @@
 import os, torch, pickle
+
 import pandas as pd
+import numpy as np
+import pandas_datareader as pdr
 
 from torch.utils.data import Dataset
 from typing import List, Optional, Union
-import numpy as np
-
 from pydantic import BaseModel
+
 
 class StockDatasetConfig(BaseModel):
     ticker: str
@@ -74,10 +76,9 @@ class StockDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 class StonksData:
-    def __init__(self, csv_path: str, time: int = 30):
-        self.csv_path = csv_path
+    def __init__(self, time: int = 30, prediction_mode: bool = False):
         self.time = time
-
+        self.prediction_mode = prediction_mode
         self.cols = ['Close']
 
     '''
@@ -121,30 +122,52 @@ class StonksData:
             data = StonksData.to_tensors(data)
         return data / curr_max * (new_max - new_min) + new_min
 
-    @staticmethod
-    def make_dataset(data: Union[torch.Tensor, np.ndarray], time: int = 30):        
+    def make_dataset(self, data: Union[torch.Tensor, np.ndarray], time: int = 30):        
         if data.shape[0] <= time:
             raise Exception(f"length of data needs to be larger than time. Is {data.shape[0]}, needs to be > {time}")
 
         if type(data) == np.ndarray:
             data = StonksData.to_tensors(data)
 
-        x = torch.stack([data[i:i + time] for i in range(data.shape[0] - time - 1) if not bool(torch.isnan(torch.sum(data[i:i + time])))]).float()
-        y = torch.stack([data[i + time + 1] for i in range(data.shape[0] - time - 1) if not bool(torch.isnan(torch.sum(data[i + time + 1])))]).float()
+        x_range = data.shape[0] - time + 1 if self.prediction_mode else data.shape[0] - time
+        x = torch.stack([data[i:i + time] for i in range(x_range) if not bool(torch.isnan(torch.sum(data[i:i + time])))]).float()
+        if self.prediction_mode:
+            return x
+
+        y = torch.stack([data[i + time] for i in range(data.shape[0] - time) if not bool(torch.isnan(torch.sum(data[i + time])))]).float()
 
         return x, y
 
     def clean_dataframe(self, df: pd.DataFrame):
         return df[self.cols].dropna(axis=0)
 
-    def read_csv(self, file: str, save_dir: str = './'):
-        df = self.clean_dataframe(pd.read_csv(file))
+    def _handle_df(self, df: pd.DataFrame):
+        df = self.clean_dataframe(df)
         data = self.normalize(df.to_numpy())
-        x, y = self.make_dataset(data)
+        return self.make_dataset(data)
+
+    def read_csv(self, file: str, save_dir: str = './'):
         config = StockDatasetConfig(ticker=self.ticker_from_path(file), base_dir=save_dir, time=self.time)
+        if self.prediction_mode:
+            x = self._handle_df(pd.read_csv(file))
+            return StockDataset(config=config, X=x)
+
+        x, y = self._handle_df(pd.read_csv(file))
         return StockDataset(config=config, X=x, y=y)
 
-    def prepare(self, tickers: List[str], save_dir: str):
-        csvs = [os.path.join(self.csv_path, f"{tick}.csv") for tick in tickers if os.path.isfile(os.path.join(self.csv_path, f"{tick}.csv"))]
-        datasets = [self.read_csv(csv, save_dir) for csv in csvs]
+    def from_yahoo(self, ticker: str, save_dir: str = './'):
+        config = StockDatasetConfig(ticker=ticker, base_dir=save_dir, time=self.time)
+        if self.prediction_mode:
+            x = self._handle_df(pdr.get_data_yahoo(ticker))
+            return StockDataset(config=config, X=x)
+
+        x, y = self._handle_df(pdr.get_data_yahoo(ticker))
+        return StockDataset(config=config, X=x, y=y)
+
+    def prepare(self, tickers: List[str], save_dir: str, yahoo: bool = False, csv_path: str = './csvs/'):
+        if yahoo:
+            datasets = [self.from_yahoo(tick, save_dir) for tick in tickers]
+        else:
+            datasets = [self.read_csv(os.path.join(csv_path, f"{tick}.csv"), save_dir) for tick in tickers if os.path.isfile(os.path.join(csv_path, f"{tick}.csv"))]
+        
         return [d.config for d in datasets if d.save()]
