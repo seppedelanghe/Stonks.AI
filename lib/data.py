@@ -77,10 +77,10 @@ class StockDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 class StonksData:
-    def __init__(self, time: int = 30, prediction_mode: bool = False):
+    def __init__(self, time: int = 30, cols = ["Close"], prediction_mode: bool = False):
         self.time = time
         self.prediction_mode = prediction_mode
-        self.cols = ['Close']
+        self.cols = cols
 
     '''
         get stock ticker symbol from csv path

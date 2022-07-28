@@ -12,6 +12,7 @@ from lib.utils import load_checkpoint
 parser = argparse.ArgumentParser(description="Train and use custom AI models for stock market predictions.")
 
 parser.add_argument('--tickers', required=True, nargs="+", help="the ticker of the stock you want to predict the price for", type=str)
+parser.add_argument('--inputs', nargs="+", help="the inputs to use in the model. The options are: Open, Close, Low, High. Default is Close.", type=str, default=['Close'])
 parser.add_argument('--model', required=True, help='path to the saved model checkpoint to load', type=str)
 parser.add_argument('--time', help='days before today you want to pass through the model', type=int, default=30)
 parser.add_argument('--layers', help='amount of internal layers in the LSTM. Default is 2.', type=int, default=2)
@@ -24,6 +25,7 @@ args = parser.parse_args()
 TIME = args.time
 LAYERS = args.layers
 TICKERS = args.tickers
+COLUMNS = args.inputs
 DEVICE = 'cpu'
 
 
@@ -31,18 +33,17 @@ DEVICE = 'cpu'
     Setup
 '''
 
-m = LSTMModel(1, TIME, LAYERS, 1, DEVICE).to(DEVICE)
+m = LSTMModel(len(COLUMNS), TIME, LAYERS, len(COLUMNS), DEVICE).to(DEVICE)
 
 loss_fn = LSTMLoss()
 opt = Adam(m.parameters(), lr=0)
-
 
 '''
     Functions
 '''
 
 def collect_data():
-    sd = StonksData(TIME, prediction_mode=True)
+    sd = StonksData(TIME, COLUMNS, prediction_mode=True)
     return sd.prepare(TICKERS, './data', yahoo=True)
 
 def predict(configs: List[StockDatasetConfig]):
