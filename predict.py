@@ -28,25 +28,23 @@ TICKERS = args.tickers
 COLUMNS = args.inputs
 DEVICE = 'cpu'
 
-
-'''
-    Setup
-'''
-
-m = LSTMModel(len(COLUMNS), TIME, LAYERS, len(COLUMNS), DEVICE).to(DEVICE)
-
-loss_fn = LSTMLoss()
-opt = Adam(m.parameters(), lr=0)
-
 '''
     Functions
 '''
 
-def collect_data():
-    sd = StonksData(TIME, COLUMNS, prediction_mode=True)
-    return sd.prepare(TICKERS, './data', yahoo=True)
+def predict(configs: List[StockDatasetConfig], columns: List[str]):
+    '''
+        Setup
+    '''
 
-def predict(configs: List[StockDatasetConfig]):
+    m = LSTMModel(len(columns), TIME, LAYERS, len(columns), DEVICE).to(DEVICE)
+    opt = Adam(m.parameters(), lr=0)
+
+    try:
+        load_checkpoint(args.model, m, opt, DEVICE)
+    except Exception as e:
+        raise Exception('the params TIME and/or LAYERS are not correct for this model. Put in the correct values for this model or train a model with these parameters.')
+
     results = {}
 
     for config in configs:
@@ -55,24 +53,31 @@ def predict(configs: List[StockDatasetConfig]):
         x = dataset.X[-1:]
         y = m(x)
 
+        curr = [float(val) for val in StonksData.inverse_normalize(x[-1, -1].squeeze(), config.ranges[0], config.ranges[1])]
+        pred = [float(val) for val in StonksData.inverse_normalize(y.detach(), config.ranges[0],config.ranges[1]).squeeze()]
         results[config.ticker] = [
-            float(StonksData.inverse_normalize(x[-1, -1].squeeze(), config.ranges[0], config.ranges[1])),
-            float(StonksData.inverse_normalize(y.detach(), config.ranges[0],config.ranges[1]).squeeze())
+            curr,
+            pred,
+            columns
         ]
 
     return results
 
 def print_results(results: dict):
-    for ticker, val in results.items():
-        print(f"{ticker}:\ncurrent:\t{val[0]}\nprediction:\t{val[1]}")
+    print("".join('-' for _ in range(64)))
+
+    for ticker, (curr, pred, cols) in results.items():
+        print(f"{ticker}:")
+        print(f"\tToday:")
+        for i, c in enumerate(curr):
+            print(f"\t\t\t{cols[i]}:\t{c}")
+        print(f"\tPredictions:")
+        for i, p in enumerate(pred):
+            print(f"\t\t\t{cols[i]}:\t{p}")
+        print("".join('-' for _ in range(64)))
 
 if __name__ == "__main__":
-    
-    try:
-        load_checkpoint(args.model, m, opt, DEVICE)
-    except Exception as e:
-        raise Exception('the params TIME and/or LAYERS are not correct for this model. Put in the correct values for this model or train a model with these parameters.')
-
-    configs = collect_data()
-    results = predict(configs)
+    sd = StonksData(TIME, COLUMNS, prediction_mode=True)
+    configs = sd.prepare(TICKERS, './data', yahoo=True)
+    results = predict(configs, sd.cols)
     print_results(results)
