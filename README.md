@@ -49,13 +49,9 @@ To view all parametes for predicting: \
 `python predict.py --help`
 <br><br>
 
-# Current status
-
-A trained model can predict the stock price pretty well using the follow hyper parameters:
-- TIME: `30`
-- LAYERS: `2`
-
 # Roadmap
 
-- Multi dim predictions => close, open, low and high
-- Improve loss function
+- [x] Multi dim predictions => close, open, low and high
+- [ ] Improve loss function
+- [ ] Add candle plots back
+- [ ] Add Weights and Biases support
