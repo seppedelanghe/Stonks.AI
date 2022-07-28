@@ -7,9 +7,9 @@ The results from the model are by far not reliable, __just a fun project.__
 
 # Example
 
-Prediction from 27/07/2022 for Apple, Microsoft and Google stocks:
+Prediction from 28/07/2022 for multiple NASDAQ stocks:
 
-[![stock-predictions.png](https://i.postimg.cc/NMW3zhKd/stock-predictions.png)](https://postimg.cc/sQ4HMN9W)
+[![stock-predictions.png](https://i.postimg.cc/WbWp1sbd/stock-predictions.png)](https://postimg.cc/ppjM0bjv)
 
 # Requirements
 
