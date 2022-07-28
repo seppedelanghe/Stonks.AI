@@ -51,26 +51,11 @@ DATA_WORKERS = 1
 CSV_PATH = 'stock_market_data/forbes2000/csv/'
 
 '''
-    Setup
-'''
-
-m = LSTMModel(len(COLUMNS), TIME, LAYERS, len(COLUMNS), DEVICE).to(DEVICE)
-
-loss_fn = LSTMLoss()
-opt = Adam(m.parameters(), lr=LR)
-
-if args.resume:
-    load_checkpoint(args.model, m, opt, DEVICE)
-
-stonks = StonksData(TIME, COLUMNS)
-configs = stonks.prepare(TICKERS, './data/', yahoo=args.yahoo, csv_path=CSV_PATH)
-
-'''
     Functions
 '''
 
-def test():
-    print('=> Testing model...\t<=')
+def test(m: LSTMModel, configs: List[StockDatasetConfig]):
+    print('=> Testing model\t<=')
     for config in configs:
         dataset = StockDataset.load(config.config_path)
 
@@ -80,7 +65,8 @@ def test():
         print_model_results(y_true, y_pred, config.ticker)
 
 
-def train_fn(configs: List[StockDatasetConfig]):
+def train_fn(m: LSTMModel, opt: Adam, configs: List[StockDatasetConfig]):
+    loss_fn = LSTMLoss()
     losses = []
     loop = tqdm(configs, total=len(configs), leave=False, desc='stocks', colour='#A90000')
 
@@ -111,16 +97,28 @@ def train_fn(configs: List[StockDatasetConfig]):
     return np.mean(losses)
 
 def train():
+    '''
+        Setup
+    '''
+    stonks = StonksData(TIME, COLUMNS)
+    configs = stonks.prepare(TICKERS, './data/', yahoo=args.yahoo, csv_path=CSV_PATH)
+
+    m = LSTMModel(len(stonks.cols), TIME, LAYERS, len(stonks.cols), DEVICE).to(DEVICE)
+    optim = Adam(m.parameters(), lr=LR)
+
+    if args.resume:
+        load_checkpoint(args.model, m, optim, DEVICE)
+
     big_loop = tqdm(range(EPOCHS), leave=True, desc='epochs')
     loss_over_time = []
 
     for epoch in big_loop:
         try:
-            mean_loss = train_fn(configs)
+            mean_loss = train_fn(m, optim, configs)
             big_loop.set_postfix({'loss': mean_loss})
 
             loss_over_time.append(mean_loss)
-            save_checkpoint(m, opt, epoch, "_".join(TICKERS))
+            save_checkpoint(m, optim, epoch, "_".join(TICKERS))
 
         except KeyboardInterrupt:
             print('Control-C pressed, stopping...')
@@ -128,11 +126,11 @@ def train():
         except Exception as e:
             raise e
 
-    test()
+    test(m, configs)
     plot_terminal_graph(np.array(loss_over_time), 'loss')
 
 
 if __name__ == "__main__":
-    print(f"=>\tStarting model training...\t<=")
+    print(f"=>\tStarting model training\t<=")
     train()
-    print(f"=>\tTraining finished!\t<=")
+    print(f"=>\tTraining finishe!\t<=")

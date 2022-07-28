@@ -82,6 +82,21 @@ class StonksData:
         self.prediction_mode = prediction_mode
         self.cols = cols
 
+        self.check_columns()
+
+    '''
+        Check the columns if they are accepted stock columns
+    '''
+    def check_columns(self):
+        options = ['Close', 'Open', 'High', 'Low']
+        accepted = [col.capitalize() for col in self.cols if col.capitalize() in options]
+        if len(accepted) == 0:
+            raise Exception(f"Not a single column of the given columns are accepted. The options are {', '.join(options)}.")
+
+        # give feedback on bad columns
+        print(*[f"Warning: column {col} is not a valid option. The options are {', '.join(options)}.\n" for col in self.cols if col.capitalize() not in accepted])
+        self.cols = accepted
+
     '''
         get stock ticker symbol from csv path
     '''
