@@ -3,6 +3,7 @@ import plotly.graph_objects as go
 import numpy as np
 import matplotlib.pyplot as plt
 
+from sklearn.metrics import r2_score
 from PIL import Image
 from datetime import datetime
 
@@ -82,3 +83,14 @@ def make_stock_price_timeline(y_true, y_pred, ticker: str, savepath: str = 'pric
     plt.ylabel(f"{ticker} Stock Price")
     plt.legend()
     plt.savefig(savepath)
+
+def print_model_results(y_true: torch.Tensor, y_pred: torch.Tensor, ticker: str):
+    print(f'Model r2 score for {ticker}:', r2_score(y_true, y_pred))
+
+    filename = f"{ticker}.png"
+    today = datetime.now().strftime("%m-%d-%Y")
+    save_path = os.path.join('results', today)
+    os.makedirs(save_path, exist_ok=True)
+    save_path = os.path.join(save_path, filename)
+    make_stock_price_timeline(y_true, y_pred, ticker, save_path)
+    print(f"Model prediction graph for {ticker} saved at: {save_path}")

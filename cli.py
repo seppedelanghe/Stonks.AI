@@ -1,4 +1,5 @@
 import argparse, sys
+from unittest import result
 
 import numpy as np
 
@@ -11,7 +12,7 @@ from torch.utils.data import DataLoader
 from lib.model import LSTMModel
 from lib.loss import LSTMLoss
 from lib.data import StockDatasetConfig, StockDataset, StonksData
-from lib.plots import plot_terminal_graph
+from lib.plots import plot_terminal_graph, print_model_results
 from lib.utils import load_checkpoint, save_checkpoint
 
 parser = argparse.ArgumentParser(description="Train and use custom AI models for stock market predictions.")
@@ -68,6 +69,17 @@ configs = stonks.prepare(TICKERS, './data/', yahoo=args.yahoo, csv_path=CSV_PATH
     Functions
 '''
 
+def test():
+    print('=> Testing model...\t<=')
+    for config in configs:
+        dataset = StockDataset.load(config.config_path)
+
+        x, y = dataset.X.to(DEVICE), dataset.y.to(DEVICE)
+        out: torch.Tensor = m(x)
+        y_true, y_pred = y.to('cpu').detach(), out.to('cpu').detach()
+        print_model_results(y_true, y_pred, config.ticker)
+
+
 def train_fn(configs: List[StockDatasetConfig]):
     losses = []
     loop = tqdm(configs, total=len(configs), leave=False, desc='stocks', colour='#A90000')
@@ -116,10 +128,11 @@ def train():
         except Exception as e:
             raise e
 
+    test()
     plot_terminal_graph(np.array(loss_over_time), 'loss')
 
 
 if __name__ == "__main__":
-    print(f"=>\tStarting model training...")
+    print(f"=>\tStarting model training...\t<=")
     train()
-    print(f"=>\tTraining finished!")
+    print(f"=>\tTraining finished!\t<=")
