@@ -55,7 +55,7 @@ CSV_PATH = 'stock_market_data/forbes2000/csv/'
 '''
 
 def test(m: LSTMModel, configs: List[StockDatasetConfig]):
-    print('=> Testing model\t<=')
+    print('=>\tTesting model\t<=')
     for config in configs:
         dataset = StockDataset.load(config.config_path)
 
@@ -133,4 +133,4 @@ def train():
 if __name__ == "__main__":
     print(f"=>\tStarting model training\t<=")
     train()
-    print(f"=>\tTraining finishe!\t<=")
+    print(f"=>\tTraining finished!\t<=")
